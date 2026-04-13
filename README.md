@@ -4,6 +4,7 @@
 This project analyzes the relationship between a company's employee count 
 and its revenue, and builds classification models to predict whether a 
 company will achieve positive revenue growth in 2023.
+[View Report](https://rpubs.com/SpencerLimss/1417979)
 
 ## Dataset
 - **Source:** Statista (600 e-commerce companies)

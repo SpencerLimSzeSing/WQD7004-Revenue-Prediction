@@ -3,6 +3,8 @@
 
 # Allow only the three required files
 !Revenue Prediction Dataset.csv
-!Project_Classification.Rmd
 !README.md
 !.gitignore
+# Allow the R file folder and the Rmd inside it
+!R file/
+!R file/Project_Classification.Rmd

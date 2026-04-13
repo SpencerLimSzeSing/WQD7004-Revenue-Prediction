@@ -1,0 +1,1045 @@
+---
+title: "Company Revenue Growth Analysis & Prediction"
+author: "To explore and analyze the relationship between key factors affecting a company’s revenue and its potential for achieving positive revenue growth in the upcoming year."
+output: html_document
+---
+# {.tabset}
+
+## Introduction
+The dataset contains information about 600 e-commerce companies, including their revenue in 2022, employee count, past revenue growth, industry category, and location category.
+
+The objectives of this project are:
+
+- To explore the relationship between a company’s employee count and revenue in 2022
+
+- To build a predictive model that can assess the likelihood of a company achieving positive revenue growth in the year 2023.
+
+## Data Obtain
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+
+if (!requireNamespace("moments",      quietly = TRUE)) install.packages("moments")
+if (!requireNamespace("dplyr",        quietly = TRUE)) install.packages("dplyr")
+if (!requireNamespace("ggplot2",      quietly = TRUE)) install.packages("ggplot2")
+if (!requireNamespace("reshape2",     quietly = TRUE)) install.packages("reshape2")
+if (!requireNamespace("gridExtra",    quietly = TRUE)) install.packages("gridExtra")
+if (!requireNamespace("patchwork",    quietly = TRUE)) install.packages("patchwork")
+if (!requireNamespace("caret",        quietly = TRUE)) install.packages("caret")
+if (!requireNamespace("glmnet",       quietly = TRUE)) install.packages("glmnet")
+if (!requireNamespace("e1071",        quietly = TRUE)) install.packages("e1071")
+if (!requireNamespace("randomForest", quietly = TRUE)) install.packages("randomForest")
+
+library(moments)
+library(dplyr)
+library(ggplot2)
+library(reshape2)
+library(gridExtra)
+library(patchwork)
+library(caret)
+library(glmnet)
+library(e1071)
+library(randomForest)
+```
+The dataset is obtained from the source of https://www.statista.com/companies/search?queries%5B%5D=ecommerce. 
+
+The basic information such as column names, total row numbers, total column numbers, data types and etc. are identified as followed by steps belows:
+```{r}
+# Set CRAN mirror
+setwd("D:/MDS project/WQD7004 PROGRAMMING FOR DATA SCIENCE")
+df <- read.csv("Revenue Prediction Dataset.csv")
+
+#check data information
+head(df,5)
+print(paste("Number of records: ", nrow(df)))
+print(paste("Number of features: ", ncol(df)))
+colnames(df)
+summary(df)
+str(df)
+```
+
+## Data Cleaning
+- Identify duplicate rows and missing data 
+- Remove the unnecessary column
+- Convert the missing data are converted from "n/a" to standard representation of missing value in R programming which is "NA"
+- Separate the categorical data into few parent categories in order to give clearer picture and provide informative insights
+```{r}
+#Remove unnecessary column
+df1 <- df[,c("Location", "Industry", "Revenue.in.2022","Employees","Last.Revenue.Growth","Founding.Year...Est.")]
+head(df1,5)
+df1[df1 == "n/a"] <- NA       #change n/a to NA (standard representation of missing value)
+colSums(is.na(df1)) 
+
+#Cleaning for categorical data
+#for industry column
+
+df1$Industry.Category <- "Other"  # Default
+
+# Consolidate based on keywords
+industry_hierarchy <- list(
+  "IT & Computer Services" = c("Computer Programming", "Computer Programming, Consultancy", "Other IT & Computer Services"),
+  "Telecommunications" = c("Telecommunications", "Other Telecommunications"),
+  "Finance & Insurance" = c("Finance-Related Services, Except Insurance & Pension Funding", "Finance & Insurance", "Finance & Insurance-Related Activities", "Reinsurance", "Trusts, Funds & Similar Financial Entities","Insurance & Pension-Related Services"),
+  "Retail Trade" = c("Wholesale Trade, Except Motor Vehicles","Dairy Products","Non-Specialized Wholesale Trade","Retail Trade, Except Motor Vehicles", "Retail Sales via Stalls & Markets", "Other Non-Specialized Stores", "Other Specialized Wholesale Activities","Wholesale & Retail Trade, Including Motor Vehicle Repairs" ),
+  "Electrical components" = c("Electronic Components & Boards","Electronic & Telecommunication Equipment & Parts"),
+  "E-commerce" = "E-Commerce",
+  "Media" = c("Information & Communication","Clothing, Footwear & Leather Articles","Electrical Household Appliances, Furniture, Lighting Equipment & Other Articles","Advertising","Radio Broadcasting","Books, Newspapers & Stationery"),
+  "Textiles" = c("Textiles, Clothing & Footwear","Textiles","Other Textiles"),
+  "Construction" = c("Real Estate","Construction") ,
+  "F&B" = c("Food, Beverages & Tobacco Wholesales","Food","Soft Drinks & Water","Malt Liquors & Malt","Other Food Services","Tobacco"),
+  "Transportation & Storage" = c("Postal Services","Transportation & Storage", "Other Transportation Support Activities", "Warehousing & Storage","Courier Services"),
+  "Administration" = c("Computer Consultancy & Facilities Management","Administrative & Supportive Services","Management Consultancy"),
+  "Professional" = c("Electrical Household Appliances, Furniture, Lighting Equipment & Other Articles","Travel Agencies","Professional, Scientific & Technical Services","Education","Research & Experimental Development on Natural Sciences & Engineering","Pharmaceutical or Medical Goods, Cosmetic & Toilet Articles") ,
+  "Other" = "Other"  # Default category for unmatched values
+)
+
+# Loop through hierarchy and apply consolidation
+for (parent_category in names(industry_hierarchy)) {
+  subcategories <- industry_hierarchy[[parent_category]]
+  df1$Industry.Category[grepl(paste(subcategories, collapse = "|"), df1$Industry, ignore.case = TRUE)] <- parent_category
+}
+industry_counts <- table(df1$Industry.Category)
+industry_counts
+
+
+
+#For location column
+table(df1$Location)
+df1$location.Category <- "Other"  # Default
+
+location_hierarchy <- list(
+  "Australia & New Zealand" = c("Australia", "New Zealand"),
+  "Europe" = c("Austria", "Belgium", "Denmark", "Finland", "France", "Germany", "Ireland","United Kingdom", 
+               "Italy", "Netherlands", "Norway", "Poland", "Spain", "Sweden","Russia") ,
+  "Middle East" = c("Bahrain", "Jordan", "Lebanon", "Qatar", "Saudi Arabia", "United Arab Emirates"),
+  "North & South America" = c("Brazil", "Canada", "United States"),
+  "Asia-Pacific" =c("China", "Hong Kong SAR China", "India", "Indonesia", "Israel", "Japan", 
+              "Malaysia", "Philippines", "Singapore", "South Korea", "Taiwan", "Thailand", 
+              "Vietnam","Uzbekistan"),
+  "Africa" = c("Egypt", "Libya", "Mauritius", "Morocco", "Nigeria", "South Africa", "Tanzania"),
+  "Other" = "Other"
+)
+
+# Loop through hierarchy and apply consolidation
+for (country in names(location_hierarchy)) {
+  subcategories <- location_hierarchy[[country]]
+  df1$Location.Category[grepl(paste(subcategories, collapse = "|"), df1$Location, ignore.case = TRUE)] <- country
+}
+location_counts <- table(df1$Location.Category)
+location_counts
+```
+After cleaning the categorical data, the numeric data will be cleaned by checking the impact of the variable itself using correlation matrix or based on the percentage of missing value as compared to overall dataset.
+```{r}
+#Select only the numeric column for cleaning
+Maindf <- df1[,c("Revenue.in.2022","Employees","Last.Revenue.Growth","Founding.Year...Est.")]
+
+#Re-check the data information
+print(paste("Number of records: ", nrow(Maindf)))
+print(paste("Number of features: ", ncol(Maindf)))
+colnames(Maindf)
+summary(Maindf)
+str(Maindf)
+
+# Count the number of duplicate rows
+num_duplicates <- sum(duplicated(df))
+print(num_duplicates)
+
+#check missing data
+any_missing <- any(Maindf == "n/a", na.rm = TRUE)
+Maindf[Maindf == "n/a"] <- NA       #change n/a to NA (standard representation of missing value)
+colSums(is.na(Maindf))              #count number of NA per column
+colSums(!is.na(Maindf))             #check number of filled values per column
+
+is.null(Maindf)                    #check nothingness
+```
+Since there are only 1 rows of Employees and 1 rows of Last.Revenue.Growth are having missing values, which is less than 10% of the overall dataset, both rows will be removed. 
+```{r}
+#remove missing column of employees and revenue
+clean_Employees <- Maindf[complete.cases(Maindf$Employees), ]
+print(sum(is.na(clean_Employees$Employees)))            
+print(sum(!is.na(clean_Employees$Employees)))
+clean_Revenue <- clean_Employees[complete.cases(clean_Employees$Last.Revenue.Growth), ]
+clean_Maindf<- clean_Revenue
+print(sum(is.na(clean_Maindf$Last.Revenue.Growth)))            
+print(sum(!is.na(clean_Maindf$Last.Revenue.Growth)))
+summary(clean_Maindf)
+
+colSums(is.na(clean_Maindf))            
+colSums(!is.na(clean_Maindf))
+```
+There are 256/600 missing values for Founding.Year...Est.
+Hence, the data frame is converted from character to numeric in order to perform the impact assessment using correlation matrix. 
+Meanwhile, all "NA" rows under Founding.Year...Est. will be temporary eliminated during correlation matrix calculation.
+```{r}
+#Before calculation, need to convert all from character to numeric
+unique(clean_Maindf$Employees)  #to check why unable to direct convert
+sapply(clean_Maindf, class)
+str(clean_Maindf)
+# Revenue in 2022: Remove "$" and "m USD" and convert to numeric
+clean_Maindf$Revenue.in.2022 <- as.numeric(substr(clean_Maindf$Revenue.in.2022, 2, nchar(clean_Maindf$Revenue.in.2022) - 6))
+# Last Revenue Growth: Remove "%"
+clean_Maindf$Last.Revenue.Growth <- as.numeric(substr(clean_Maindf$Last.Revenue.Growth, 1, nchar(clean_Maindf$Last.Revenue.Growth) - 1))
+# Other: normal convert
+clean_Maindf$Founding.Year...Est. <- as.numeric(clean_Maindf$Founding.Year...Est.)
+clean_Maindf$Employees <- as.numeric(gsub(",", "", clean_Maindf$Employees))
+clean_Maindf$Employees <- as.numeric(clean_Maindf$Employees)
+colSums(is.na(clean_Maindf))            
+colSums(!is.na(clean_Maindf))
+
+#For Funding Years, to check whether the variable is impact on revenue, correlation matrix is calculated after eliminate all NA column.
+#Clean NA rows for Founding year
+clean_Founding <- clean_Maindf[complete.cases(clean_Maindf$Founding.Year...Est.), ]
+print(sum(is.na(clean_Founding$Founding.Year...Est.)))            
+print(sum(!is.na(clean_Founding$Founding.Year...Est.)))
+colSums(is.na(clean_Founding))            
+colSums(!is.na(clean_Founding))
+head(clean_Founding,5)
+
+# Correlation Matrix Calculation
+cor_matrix <- cor(clean_Founding)
+print(cor_matrix)
+```
+Based on Correlation Matrix, Founding year have no correlation with any of the other value.
+Hence, by considering it consists of high number of missing value, the entire column is decided to be removed and new data frame is created.
+```{r}
+#New data frame after remove unnecessary columns.
+Final_df <- clean_Maindf[,c("Revenue.in.2022","Employees","Last.Revenue.Growth")]
+head(Final_df,5)
+sapply(Final_df, class)
+summary(Final_df)
+colSums(is.na(Final_df))            
+colSums(!is.na(Final_df))
+```
+
+Effectiveness of Data Cleaning will be check using Histogram for skewness and BOX-plot for outlier.
+For skewness, due to both columns of Employees and Revenue.in.2022 shows highly positive skewness towards right side, the log-transformation method have been used to transform the data towards more symmetric result.
+By comparing the result of original data frame and log-transformed data frame,the similar results shows least impact of log-transform to correlation matrix.Hence, the transformation is acceptable and will not impact on prediction results.
+
+```{r}
+# Check data types
+class(Final_df$Employees)
+
+# Convert to numeric
+#your_data$variable <- as.numeric(your_data$variable)
+```
+```{r}
+# Install and load the moments package if not already installed
+
+# Raw data skewness
+skew_bf_Emp <- skewness(Final_df$Employees)
+skew_bf_Rev <- skewness(Final_df$Revenue.in.2022)
+print(paste("Original Skewness of Employees:",skew_bf_Emp))
+print(paste("Original Skewness of Revenue in 2022:",skew_bf_Rev))
+
+# Log transformation
+Final_df$Employees_log <- log(Final_df$Employees)
+Final_df$Revenue.in.2022_log <- log(Final_df$Revenue.in.2022)
+
+# Check the skewness after transformation
+skew_af_Emp <- skewness(Final_df$Employees_log)
+skew_af_Rev <- skewness(Final_df$Revenue.in.2022_log)
+print(paste("Log-Transformed Skewness of Employees:",skew_af_Emp))
+print(paste("Log-Transformed Skewness of Revenue in 2022:",skew_af_Rev))
+
+# Create histograms for both the original and log-transformed variables
+par(mfrow=c(1,2))  # Set up a 1x2 grid for side-by-side plots
+
+# Original variable
+hist(Final_df$Revenue.in.2022, 
+     main = "Histogram of Original",
+     xlab = "Revenue.in.2022",
+     col = "lightblue",
+     border = "black")
+
+# Transformed variable
+hist(log(Final_df$Revenue.in.2022), 
+     main = "Histogram of Log-Transformed",
+     xlab = "log(Revenue.in.2022)",
+     col = "lightgreen",
+     border = "black")
+
+# Original variable
+hist(Final_df$Employees, 
+     main = "Histogram of Original",
+     xlab = "Employees",
+     col = "lightblue",
+     border = "black")
+
+# Transformed variable
+hist(log(Final_df$Employees), 
+     main = "Histogram of Log-Transformed",
+     xlab = "log(Employees)",
+     col = "lightgreen",
+     border = "black")
+
+# Correlation Matrix Calculation
+cor_matrix <- cor(Final_df)
+print(cor_matrix)
+#The results shows least impact of log-transform to correlation matrix.The transformation is acceptable.
+```
+Next, outlier have been verified using BOX-plot for log-values. By using the range of 3.0 (range: 1.5-3.0 for normal to moderately skeness data), the results shows there are outliers existing in the data frame for column Last.Revenue.Growth. 
+Hence, the outliers are removed and new BOX-plot after outlier removal is plotted.
+```{r}
+head (Final_df,5)
+```
+
+```{r}
+#BOX plot for checking outliers
+par(mar = c(5, 8, 4, 2))
+Final_df_log1 <- Final_df[, c("Revenue.in.2022_log", "Employees_log", "Last.Revenue.Growth")]
+boxplot(Final_df_log1, col = c("lightblue", "lightgreen", "lightpink"), horizontal = TRUE, main = "Horizontal Box Plot", range = 3.0)
+
+#Remove outliers
+outliers_col <- boxplot.stats(Final_df_log1$Last.Revenue.Growth)$out
+outliers <- unique(c(outliers_col))
+outliers
+Final_df_log <- Final_df_log1[!Final_df_log1$Last.Revenue.Growth %in% outliers, ]
+
+#BOX plot after remove outliers
+boxplot(Final_df_log, col = c("lightblue", "lightgreen", "lightpink"), horizontal = TRUE, main = "Horizontal Box Plot (Outliers Removed)", range = 3.0)
+head(Final_df,5)
+head(Final_df_log,5)
+```
+After cleaning all the numeric data, the dataset is combine again with the cleaned categorical data.
+```{r}
+Final_df_log <- cbind(Final_df_log, Industry.Category = df1$Industry.Category[match(rownames(Final_df_log), rownames(df1))])
+head(Final_df_log,5)
+Final_df_log <- cbind(Final_df_log, Location.Category = df1$Location.Category[match(rownames(Final_df_log), rownames(df1))])
+head(Final_df_log,5)
+```
+The data frame : Final_df_log, will be used for next process onwards.
+
+
+## Exploratory Data Analytics (EDA)
+
+### Understanding Dataset
+- summary statistic to get an overview of the central tendencies.
+```{r}
+# Check column names
+colnames(Final_df_log)
+```
+```{r}
+# summarization of all columns
+summary(Final_df_log)
+```
+Industry and Location data are attributed as data with values within categorical variables. Meanwhile, Revenue.in.2022_log, Employees_log, Last.Revenue.Growth are attributed as data with values within numeric variables. Based on this information, it is evident that all the data can be categorized as structured data, as both the categorical and numerical data belong to this classification.
+
+### Understanding Numeric Variables
+1. Box Plot
+
+```{r}
+#download necessary libraries
+# Ensure only numeric columns
+numeric_cols <- Final_df_log[, sapply(Final_df_log, is.numeric)]
+
+#BOX plot
+boxplot(numeric_cols, col = c("lightblue", "lightgreen", "lightpink"), horizontal = TRUE, main = "Horizontal Box Plot", range = 3.0)
+```
+2. Histogram
+```{r}
+par(mfrow = c(1, 3))
+
+# Create histogram for Revenue.in.2022_log 
+hist(Final_df_log$Revenue.in.2022_log, 
+     main = "Histogram of Revenue.in.2022",
+     xlab = "Revenue",
+     col = "skyblue") 
+
+# Create histogram for Employees_log 
+hist(Final_df_log$Employees_log,
+     main = "Histogram of Employees",
+     xlab = "Employees",
+     col = "lightgreen")  
+
+# Create histogram for Employees_log with a specific color
+hist(Final_df_log$Last.Revenue.Growth,
+     main = "Histogram of Revenue Growth",
+     xlab = "Revenue Growth",
+     col = "pink")  
+```
+
+
+Revenue.in.2022 has less variance compared to Last.Revenue.Growth, however the central tendency Revenue.in.2022 is more skewed compared to Last.Revenue.Growth.
+
+### Understanding Categorical Variables
+```{r}
+#download necessary libraries
+# Create a table for counts of Industry.Category
+industry_counts <- table(Final_df_log$Industry.Category)
+
+# Create a table for counts of Location.Category
+location_counts <- table(Final_df_log$Location.Category)
+
+# Create data frames for ggplot
+industry_data <- data.frame(Var1 = names(industry_counts), Freq = as.vector(industry_counts))
+location_data <- data.frame(Var1 = names(location_counts), Freq = as.vector(location_counts))
+
+# Plotting individual bar charts for Industry and Location categories using ggplot2
+p1 <- ggplot(industry_data, aes(x = reorder(Var1, Freq), y = Freq)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  geom_text(aes(label = Freq), vjust = -0.5, size = 3, color = "black") +
+  labs(title = "Frequency of Industry Categories", x = "Industry Category", y = "Frequency") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+p2 <- ggplot(location_data, aes(x = reorder(Var1, Freq), y = Freq)) +
+  geom_bar(stat = "identity", fill = "lightgreen") +
+  geom_text(aes(label = Freq), vjust = -0.5, size = 3, color = "black") +
+  labs(title = "Frequency of Location Categories", x = "Location Category", y = "Frequency") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+# Displaying graphs side by side using grid.arrange()
+grid.arrange(p1, p2, ncol = 2)
+```
+
+
+The dataset consist of multiple industries mainly from Asia-Pacific.
+
+### Analyzing Data
+
+- To identify the dependent variable as Revenue.in.2022_log or Last.Revenue.Growth by the end of the process. 
+
+- To break down the process to Numerical vs. Numerical and Categorical vs. Numerical Correlation sincethe data is structured data.
+
+#### Numerical vs. Numerical Correlation
+ Scatter Plot
+
+```{r}
+# Create a layout with two plots side by side
+par(mfrow = c(1, 2))
+
+# Scatter plot for Revenue in 2022 vs. Employees with trendline
+plot(Final_df_log$Revenue.in.2022_log, Final_df_log$Employees_log,
+     xlab = "Revenue in 2022", ylab = "Employees",
+     main = "Employees vs. Revenue in 2022")
+
+# Fit a linear regression line and add it to the plot
+fit <- lm(Employees_log ~ Revenue.in.2022_log, data = Final_df_log)
+abline(fit, col = "red")
+
+# Scatter plot for Employees vs. Last Revenue Growth with trendline
+plot(Final_df_log$Last.Revenue.Growth, Final_df_log$Employees_log,
+     xlab = "Last Revenue Growth", ylab = "Employees",
+     main = "Employees vs. Last Revenue Growth")
+
+# Fit a linear regression line and add it to the plot
+fit_last_revenue <- lm(Employees_log ~ Last.Revenue.Growth, data = Final_df_log)
+abline(fit_last_revenue, col = "blue")
+```
+correlation matrix
+```{r}
+correlation_matrix <- cor(Final_df_log[, c("Revenue.in.2022_log", "Employees_log", "Last.Revenue.Growth")])
+
+# Visualize correlation matrix as a heatmap with values inside
+
+# Convert correlation matrix to long format for plotting
+correlation_melted <- melt(correlation_matrix)
+
+# Plot heatmap of the correlation matrix with values inside
+ggplot(correlation_melted, aes(Var1, Var2, fill = value, label = round(value, 2))) +
+  geom_tile(color = "white") +
+  geom_text(color = "black") +
+  scale_fill_gradient(low = "lightblue", high = "darkblue") +
+  labs(title = "Correlation Heatmap with Values") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  coord_fixed()
+```
+
+
+There are high correlation between Revenue.in.2022_log vs. Employees_log while the Last.Revenue.Growth vs. Employees_log has low correlation.
+
+#### Categorical vs. Numerical Correlation
+
+Correlation analysis for Categorical vs. Numerical is not straight forward as Numerical vs. Numerical.Firstly breakdown the categories and find correlation of the breakdowns to further understand how Revenues are contributing to different parts of categories.
+```{r}
+# Unique industry categories
+unique_categories <- unique(Final_df_log$Industry.Category)
+
+# Create an empty list to store correlations for each category
+correlation_list <- list()
+
+#loop
+for (category in unique_categories) {
+  # Subset data for each category
+  subset_data <- subset(Final_df_log, Industry.Category == category)
+  
+  # Calculate correlation between 'Revenue.in.2022_log' and other variables in the subset
+  correlation <- cor.test(subset_data$Revenue.in.2022_log, subset_data$Employees_log)
+  
+  # Store correlation information in the list
+  correlation_list[[category]] <- correlation
+}
+
+# Convert the correlation estimates and categories to a data frame
+correlation_df <- data.frame(Category = unique_categories,
+                             Correlation = sapply(correlation_list, function(x) x$estimate))
+
+# Sort the data frame by Correlation from highest to lowest
+correlation_df <- correlation_df[order(-correlation_df$Correlation), ]
+
+# Print correlations from highest to lowest
+for (i in 1:nrow(correlation_df)) {
+  cat("Correlation for", correlation_df$Category[i], ":", correlation_df$Correlation[i], "\n")
+}
+```
+
+```{r}
+# Unique location categories
+unique_locations <- unique(Final_df_log$Location.Category)
+
+# Create an empty list to store correlations for each location category
+correlation_list_location <- list()
+
+# Loop through each unique location category
+for (location in unique_locations) {
+  # Subset data for each location category
+  subset_data <- subset(Final_df_log, Location.Category == location)
+  
+  # Calculate correlation between 'Revenue.in.2022_log' and 'Employees_log' in the subset
+  correlation <- cor.test(subset_data$Revenue.in.2022_log, subset_data$Employees_log)
+  
+  # Store correlation information in the list
+  correlation_list_location[[location]] <- correlation
+}
+
+# Convert the correlation estimates and categories to a data frame for locations
+correlation_df_location <- data.frame(Location = unique_locations,
+                                      Correlation = sapply(correlation_list_location, function(x) x$estimate))
+
+# Sort the data frame by Correlation from highest to lowest for locations
+correlation_df_location <- correlation_df_location[order(-correlation_df_location$Correlation), ]
+
+# Print correlations from highest to lowest for locations
+for (i in 1:nrow(correlation_df_location)) {
+  cat("Correlation for", correlation_df_location$Location[i], ":", correlation_df_location$Correlation[i], "\n")
+}
+```
+The best way to visualize this data is to use the bar chart since there is a lot of industry breakdowns
+
+```{r}
+# Bar chart for correlation_df (Industry.Category)
+plot_correlation_df <- ggplot(correlation_df, aes(x = reorder(Category, Correlation), y = Correlation)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  geom_text(aes(label = round(Correlation, 2)), size = 2, color = "black") +
+  labs(title = "Revenue vs Industry Correlation",
+       x = "Industry Category", y = "Correlation") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+# Bar chart for correlation_df_location (Location.Category)
+plot_correlation_df_location <- ggplot(correlation_df_location, aes(x = reorder(Location, Correlation), y = Correlation)) +
+  geom_bar(stat = "identity", fill = "lightgreen") +
+  geom_text(aes(label = round(Correlation, 2)),  size = 3, color = "black") +
+  labs(title = "Revenue vs Location Correlation",
+       x = "Location Category", y = "Correlation") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+# Arrange plots side by side on the same row
+plot_correlation_df + plot_correlation_df_location +
+  plot_layout(ncol = 2)
+```
+The most have positive correlations with the Revenue.in.2022_log.
+
+Next analyze with Last.Revenue.Growth as the dependent variable and explore the correlations between Industry and Locations.
+```{r}
+# Unique industry categories
+unique_categories <- unique(Final_df_log$Industry.Category)
+
+# Create an empty list to store correlations for each category
+correlation_list_growth <- list()
+
+# Loop through each unique category
+for (category in unique_categories) {
+  # Subset data for each category
+  subset_data <- subset(Final_df_log, Industry.Category == category)
+  
+  # Calculate correlation between 'Last.Revenue.Growth' and 'Employees_log' in the subset
+  correlation <- cor.test(subset_data$Last.Revenue.Growth, subset_data$Employees_log)
+  
+  # Store correlation information in the list
+  correlation_list_growth[[category]] <- correlation
+}
+
+# Convert the correlation estimates and categories to a data frame for Last.Revenue.Growth
+correlation_df_growth <- data.frame(Category = unique_categories,
+                                    Correlation = sapply(correlation_list_growth, function(x) x$estimate))
+
+# Sort the data frame by Correlation from highest to lowest for Last.Revenue.Growth
+correlation_df_growth <- correlation_df_growth[order(-correlation_df_growth$Correlation), ]
+
+# Print correlations from highest to lowest for Last.Revenue.Growth
+for (i in 1:nrow(correlation_df_growth)) {
+  cat("Correlation for", correlation_df_growth$Category[i], ":", correlation_df_growth$Correlation[i], "\n")
+}
+```
+```{r}
+# Unique location categories
+unique_locations <- unique(Final_df_log$Location.Category)
+
+# Create an empty list to store correlations for each location category
+correlation_list_location_growth <- list()
+
+# Loop through each unique location category
+for (location in unique_locations) {
+  # Subset data for each location category
+  subset_data <- subset(Final_df_log, Location.Category == location)
+  
+  # Calculate correlation between 'Last.Revenue.Growth' and 'Employees_log' in the subset
+  correlation <- cor.test(subset_data$Last.Revenue.Growth, subset_data$Employees_log)
+  
+  # Store correlation information in the list
+  correlation_list_location_growth[[location]] <- correlation
+}
+
+# Convert the correlation estimates and categories to a data frame for locations
+correlation_df_location_growth <- data.frame(Location = unique_locations,
+                                             Correlation = sapply(correlation_list_location_growth, function(x) x$estimate))
+
+# Sort the data frame by Correlation from highest to lowest for locations
+correlation_df_location_growth <- correlation_df_location_growth[order(-correlation_df_location_growth$Correlation), ]
+
+# Print correlations from highest to lowest for locations
+for (i in 1:nrow(correlation_df_location_growth)) {
+  cat("Correlation for", correlation_df_location_growth$Location[i], ":", correlation_df_location_growth$Correlation[i], "\n")
+}
+```
+bar charts.
+```{r}
+# Bar chart for correlation_df_growth (Industry.Category)
+plot_correlation_df_growth <- ggplot(correlation_df_growth, aes(x = reorder(Category, Correlation), y = Correlation)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  geom_text(aes(label = round(Correlation, 2)), size = 2, color = "black") +
+  labs(title = "Last Revenue Growth vs Industry",
+       x = "Industry Category", y = "Correlation") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+# Bar chart for correlation_df_location_growth (Location.Category)
+plot_correlation_df_location_growth <- ggplot(correlation_df_location_growth, aes(x = reorder(Location, Correlation), y = Correlation)) +
+  geom_bar(stat = "identity", fill = "lightgreen") +
+  geom_text(aes(label = round(Correlation, 2)),  size = 3, color = "black") +
+  labs(title = "Last Revenue Growth vs Location",
+       x = "Location Category", y = "Correlation") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+# Arrange plots side by side on the same row
+plot_correlation_df_growth + plot_correlation_df_location_growth +
+  plot_layout(ncol = 2)
+
+```
+
+
+There are quite a handful of correlation outcomes that has less than 0 correlation.
+
+### Summary
+This section focused on the correlations between dependent variables and independent variables and here are few key takeaways that can consider to structure the models:
+
+Revenue.in.2022_log is suggested to be the main dependent variable as it has high correlation to a lot of independent variables comparatively with Last.Revenue.Growth. However, few techniques need to be applied to cater potential skewness challenges.
+Regression modeling can be the main model for the project, and using Employees as the independent variable can produce a much more straightforward result.
+
+
+## Regression Model
+
+This section addresses **Objective 1**: exploring the relationship between 
+employee count and revenue. The dependent variable is `Revenue.in.2022_log` 
+(log-transformed revenue), chosen because it is a continuous numeric measure 
+of financial performance. `Employees_log` is used as the sole independent 
+variable to keep the relationship interpretable. A linear regression is 
+appropriate here since both variables are numeric and we are estimating 
+the magnitude of the relationship.
+
+### Split Data
+To split the data into training sets and test sets.
+
+```{r}
+#Load necessary packages
+# Split the data into training and testing sets
+set.seed(123)
+# Create a data partition for training and testing
+train_index <- createDataPartition(Final_df_log$Revenue.in.2022_log, p = 0.8, list = FALSE)
+
+# Extract the training and testing data
+train_data <- Final_df_log[train_index, ]
+test_data <- Final_df_log[-train_index, ]
+```
+### Data Modeling
+```{r}
+# Create a simple linear regression model with "Employees_log" as the only independent variable
+model <- lm(Revenue.in.2022_log ~ Employees_log, data = train_data)
+
+# Summarize the linear regression model
+model_summary <- summary(model)
+
+# Print the model summary
+print(model_summary)
+```
+```{r}
+# Visualize the relationship between Employees_log and Revenue.in.2022_log
+plot(train_data$Employees_log, train_data$Revenue.in.2022_log, main = "Scatterplot of Employees_log vs. Revenue.in.2022_log", 
+     xlab = "Employees_log", ylab = "Revenue.in.2022_log", col = "blue", pch = 16)
+
+# Add the regression line to the scatterplot
+abline(model, col = "red")
+```
+### Test Result
+```{r}
+# Predictions on the test set
+predictions <- predict(model, newdata = test_data)
+
+# Model Evaluation on the test set
+# Calculate Root Mean Squared Error (RMSE) and Mean Absolute Error (MAE)
+rmse <- sqrt(mean((predictions - test_data$Revenue.in.2022_log)^2))
+mae <- mean(abs(predictions - test_data$Revenue.in.2022_log))
+
+# Print evaluation metrics
+cat("Root Mean Squared Error (RMSE):", rmse, "\n")
+```
+```{r}
+cat("Mean Absolute Error (MAE):", mae, "\n")
+```
+```{r}
+# Additional Model Evaluation Metrics
+# Calculate R-squared
+rsquared <- summary(model)$r.squared
+cat("R-squared:", rsquared, "\n")
+```
+```{r}
+# Calculate Adjusted R-squared
+adj_rsquared <- summary(model)$adj.r.squared
+cat("Adjusted R-squared:", adj_rsquared, "\n")
+```
+### Analyze Results
+```{r}
+# Residual Analysis: Plot residuals vs. fitted values
+residuals <- residuals(model)
+fitted_values <- fitted(model)
+plot(fitted_values, residuals, main = "Residuals vs. Fitted Values",
+     xlab = "Fitted Values", ylab = "Residuals", col = "purple", pch = 16)
+```
+```{r}
+# Perform Shapiro-Wilk test for normality of residuals
+shapiro_test <- shapiro.test(residuals)
+cat("Shapiro-Wilk test p-value:", shapiro_test$p.value, "\n")
+```
+
+## Classification Model
+
+This section addresses **Objective 2**: predicting whether a company will 
+achieve positive revenue growth in 2023. Unlike the regression above, the 
+target here is `Last.Revenue.Growth` converted into a binary outcome — 
+1 if growth was positive, 0 otherwise. Classification is used instead of 
+regression because the business question is a yes/no decision, not a 
+precise growth estimate. The same `Employees_log` predictor is used to 
+maintain consistency with the regression analysis.
+
+### Data Preparation
+Ensure the dataset is clean and does not have missing values.
+```{r}
+head(Final_df_log, 5)
+```
+```{r}
+summary(Final_df_log)
+```
+```{r}
+# check for duplicate rows
+duplicaterow <- sum(duplicated(df))
+cat("duplicate data :", duplicaterow)
+
+```
+```{r}
+#check for missing data
+colSums(is.na(Final_df_log))      
+```
+
+- Encode categorical variables (Last.Revenue.Growth)
+
+This is to set the dependent variable as the binary outcome (positive revenue growth or not), 
+and the independent variables as the numbers of employee.
+```{r}
+# Encode categorical variable 
+Final_df_log$Encoded.Last.Revenue.Growth <- ifelse(Final_df_log$Last.Revenue.Growth > 0, 1, 0)
+# Create factor version here — before the split so all datasets inherit it
+Final_df_log$Factor.Last.Revenue.Growth <- as.factor(Final_df_log$Encoded.Last.Revenue.Growth)
+# Print the updated dataset
+head(Final_df_log,5)
+```
+### Splitting Data
+Split the dataset into training and testing sets.
+```{r}
+#Count numbers of rows
+number_rows <- nrow(Final_df_log)
+# Print the number of rows
+print(paste("Number of rows:", number_rows))
+```
+```{r}
+# Set the seed for reproducibility
+set.seed(123)
+# Specify the split ratio
+split <- 0.80
+# Sample for the training set
+train_data <- sample(seq_len(nrow(Final_df_log)), split * nrow(Final_df_log))
+# Create the training set
+training_set <- Final_df_log[train_data, ]
+# Create the testing set by excluding the training set indices
+testing_set <- Final_df_log[-train_data, ]
+# Print the training and testing sets
+print(paste("Training set size:", nrow(training_set)))
+print(paste("Testing set size:", nrow(testing_set)))
+```
+```{r}
+print(paste("Training set size:", nrow(training_set)))
+print(paste("Testing set size:",  nrow(testing_set)))
+
+# Confirm the factor column exists in both sets
+cat("Factor column in training set:", 
+    "Factor.Last.Revenue.Growth" %in% colnames(training_set), "\n")
+cat("Factor column in testing set:",  
+    "Factor.Last.Revenue.Growth" %in% colnames(testing_set),  "\n")
+
+# Check class balance
+cat("Class distribution in training set:\n")
+print(table(training_set$Factor.Last.Revenue.Growth))
+```
+
+## Logistic Regression Model
+
+```{r}
+# Perform logistic regression
+logistic_model <- glm(Encoded.Last.Revenue.Growth ~ Employees_log, data = training_set, family = "binomial")
+# Print the summary of the logistic regression model
+summary(logistic_model)
+```
+### Model Evaluation:
+Evaluate the model's performance on the testing dataset using appropriate metrics such as accuracy, precision, recall, and F1 score.
+```{r}
+# Predict on the testing set
+predicted_probs <- predict(logistic_model, newdata = testing_set, type = "response")
+predicted_Revenue.growth <- ifelse(predicted_probs > 0.5, 1, 0)
+# Evaluate the model
+conf_matrix <- table(
+  Predicted = predicted_Revenue.growth,
+  Actual    = testing_set$Encoded.Last.Revenue.Growth
+)
+print(conf_matrix)
+
+```
+### Interpretation
+Results:
+
+1.(True Positives) The model correctly predicted positive revenue growth in 58 instances .
+
+2.(False Positive)  The model incorrectly predicted positive revenue growth in 5 instance where there was no actual positive revenue growth .
+
+3.(False Negative) The model failed to predict positive revenue growth in 54 instances where there was actual positive revenue growth .
+
+4.(True Negative) The model correctly predicted no positive revenue growth in 2 instance .
+
+
+```{r}
+# Confusion matrix values
+TP <- 58
+FP <- 5
+FN <- 54
+TN <- 2
+
+# Calculate Accuracy
+accuracy <- (TP + TN) / (TP + FP + FN + TN)
+# Calculate Precision
+precision <- TP / (TP + FP)
+# Calculate Recall (Sensitivity or True Positive Rate)
+recall <- TP / (TP + FN)
+# Calculate Specificity (True Negative Rate)
+specificity <- TN / (TN + FP)
+# Calculate F1 Score
+f1_score <- 2 * (precision * recall) / (precision + recall)
+
+# Print the results
+print(paste("Accuracy:", round(accuracy, 4)))
+print(paste("Precision:", round(precision, 4)))
+print(paste("Recall:", round(recall, 4)))
+print(paste("Specificity:", round(specificity, 4)))
+print(paste("F1 Score:", round(f1_score, 4)))
+
+```
+### 5-fold cross-validation for more reliable accuracy estimate
+```{r}
+cv_control <- trainControl(method = "cv", number = 5, classProbs = FALSE)
+
+Final_df_log$CV.Target <- as.factor(Final_df_log$Encoded.Last.Revenue.Growth)
+
+cv_model <- train(
+  CV.Target ~ Employees_log,
+  data      = Final_df_log,
+  method    = "glm",
+  family    = "binomial",
+  trControl = cv_control
+)
+
+print(cv_model)
+cat("Cross-validated Accuracy:", round(max(cv_model$results$Accuracy), 4), "\n")
+```
+
+## Random Forest 
+
+```{r}
+# Train the Random Forest model
+rf_model <- randomForest::randomForest(Factor.Last.Revenue.Growth ~  Employees_log, data = training_set)
+# Make predictions on the testing set
+predicted_Revenue.growth <- predict(rf_model, newdata = testing_set, type = "response")
+
+```
+### Model Evaluation
+```{r}
+# Evaluate the model (e.g., confusion matrix, accuracy, etc.)
+conf_matrix <- table(predicted_Revenue.growth, testing_set$Factor.Last.Revenue.Growth)
+# Create a new confusion matrix with updated labels
+rf_conf_matrix <- conf_matrix
+# Rename rows (predicted labels)
+rownames(rf_conf_matrix) <- c("Actual 0", "Actual 1")
+# Rename columns (true labels)
+colnames(rf_conf_matrix) <- c("Predicted 0", "Predicted 1")
+# Print the updated confusion matrix
+print(rf_conf_matrix)
+```
+### 5-fold cross-validation for more reliable accuracy estimate
+```{r}
+cv_control <- trainControl(method = "cv", number = 5, classProbs = FALSE)
+
+Final_df_log$CV.Target <- as.factor(Final_df_log$Encoded.Last.Revenue.Growth)
+
+cv_model <- train(
+  CV.Target ~ Employees_log,
+  data      = Final_df_log,
+  method    = "rf",
+  family    = "binomial",
+  trControl = cv_control
+)
+
+print(cv_model)
+cat("Cross-validated Accuracy:", round(max(cv_model$results$Accuracy), 4), "\n")
+```
+
+### Interpretation 
+Results:
+
+1.(True Positives) The model correctly predicted positive revenue growth in 37 instances .
+
+2.(False Positive)  The model incorrectly predicted positive revenue growth in 26 instance where there was no actual positive revenue growth .
+
+3.(False Negative) The model failed to predict positive revenue growth in 30 instances where there was actual positive revenue growth .
+
+4.(True Negative) The model correctly predicted no positive revenue growth in 26 instance .
+
+```{r}
+# Confusion matrix values
+TP <- 36
+FP <- 27
+FN <- 29
+TN <- 27
+
+# Calculate Accuracy
+accuracy <- (TP + TN) / (TP + FP + FN + TN)
+# Calculate Precision
+precision <- TP / (TP + FP)
+# Calculate Recall (Sensitivity or True Positive Rate)
+recall <- TP / (TP + FN)
+# Calculate Specificity (True Negative Rate)
+specificity <- TN / (TN + FP)
+# Calculate F1 Score
+f1_score <- 2 * (precision * recall) / (precision + recall)
+
+# Print the results
+print(paste("Accuracy:", round(accuracy, 4)))
+print(paste("Precision:", round(precision, 4)))
+print(paste("Recall:", round(recall, 4)))
+print(paste("Specificity:", round(specificity, 4)))
+print(paste("F1 Score:", round(f1_score, 4)))
+
+```
+## Naive Bayes model
+```{r}
+# Train a Naive Bayes model
+naive_bayes_model <- naiveBayes(Encoded.Last.Revenue.Growth ~ Employees_log, data = training_set)
+# Make predictions on the testing set
+predicted_probs <- predict(naive_bayes_model, testing_set, type = "raw")
+# Convert predicted probabilities to labels 
+predicted_Revenue.growth <- predict(naive_bayes_model, testing_set, type = "class")
+```
+
+### Model Evaluation
+
+```{r}
+# Create a confusion matrix
+conf_matrix <- table(predicted_Revenue.growth,testing_set$Encoded.Last.Revenue.Growth)
+# Create a new confusion matrix with updated labels
+nb_conf_matrix <- conf_matrix
+# Rename rows (predicted labels)
+rownames(nb_conf_matrix) <- c("Actual 0", "Actual 1")
+# Rename columns (true labels)
+colnames(nb_conf_matrix) <- c("Predicted 0", "Predicted 1")
+# Print the updated confusion matrix
+print(nb_conf_matrix)
+
+```
+Results:
+
+1.(True Positives) The model correctly predicted positive revenue growth in 56 instances .
+
+2.(False Positive)  The model incorrectly predicted positive revenue growth in 0 instance where there was no actual positive revenue growth .
+
+3.(False Negative) The model failed to predict positive revenue growth in 63 instances where there was actual positive revenue growth .
+
+4.(True Negative) The model correctly predicted no positive revenue growth in 0 instance .
+
+```{r}
+# Confusion matrix values
+TP <- 56
+FP <- 0
+FN <- 63
+TN <- 0
+
+# Calculate Accuracy
+accuracy <- (TP + TN) / (TP + FP + FN + TN)
+# Calculate Precision
+precision <- TP / (TP + FP)
+# Calculate Recall (Sensitivity or True Positive Rate)
+recall <- TP / (TP + FN)
+# Calculate Specificity (True Negative Rate)
+specificity <- TN / (TN + FP)
+# Calculate F1 Score
+f1_score <- 2 * (precision * recall) / (precision + recall)
+
+# Print the results
+print(paste("Accuracy:", round(accuracy, 4)))
+print(paste("Precision:", round(precision, 4)))
+print(paste("Recall:", round(recall, 4)))
+print(paste("Specificity:", round(specificity, 4)))
+print(paste("F1 Score:", round(f1_score, 4)))
+```
+## Conclusion 
+Several classification model is trained (Logistic Regression, Random Forest, Naives Bayes) to predict the likelihood of positive revenue growth in 2023. The accuracy of each model are 0.5042, 0.5294, 0.4706 respectively.
+
+In conclusion,the regression model confirms a statistically significant positive relationship 
+between employee count and revenue (R² = 0.28, RMSE = 0.79). However, R² = 0.28 
+means employee count explains only 28% of the variation in revenue — the remaining 
+72% is driven by factors not captured in this model. Employee count alone is 
+therefore a weak practical predictor, and future work should incorporate additional 
+features such as industry, location, and company age.
+
+The 2 objectives are answered even the model result are not producing satisfactory result. High predictive accuracy is not feasible mainly due to the data limitation. Even though both model doesn’t produce satisfactory results but it’s important to conduct a thorough evaluation and analysis to understand the limitations and potential areas for improvement.
+
+Action for further analysis:
+
+1. Re-evaluate Data Quality: Data cleaning and pre-processing 
+
+2. Feature Engineering: select the correct feature based on the correlation matrix.
+
+
+
+
+# {-}
+
