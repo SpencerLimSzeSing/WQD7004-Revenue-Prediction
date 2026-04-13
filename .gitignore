@@ -1,0 +1,8 @@
+# Ignore everything by default
+*
+
+# Allow only the three required files
+!Revenue Prediction Dataset.csv
+!Project_Classification.Rmd
+!README.md
+!.gitignore
